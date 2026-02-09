@@ -2,7 +2,7 @@
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QFileDialog,
-    QTextEdit, QMessageBox,QApplication
+    QTextEdit, QMessageBox,QApplication,QProgressDialog
 )
 from PyQt5.QtCore import Qt
 
@@ -113,20 +113,34 @@ class HdictVocConverterWindow(QMainWindow):
         self._log("开始处理...\n")
 
         try:
+            # 创建进度对话框
+            progress = QProgressDialog("正在转换 hdict 到 VOC XML...", "取消", 0, 100, self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setMinimumDuration(0)           # 立即显示
+            progress.setAutoClose(False)
+            progress.setAutoReset(False)
+
             if self.cb_mode.currentIndex() == 0:
+                # hdict → VOC
                 hdict_to_voc_xml(
                     hdict_path=self.input_path,
                     output_dir=self.output_path,
-                    log_func=self._log
+                    log_func=self._log,
+                    progress=progress   # 新增：传入进度对话框
                 )
             else:
+                # VOC → hdict （如果也想加进度条，可类似实现）
                 voc_xml_to_hdict(
                     xml_dir=self.input_path,
                     output_dir=self.output_path,
                     log_func=self._log
                 )
+
+            progress.close()
             self._log("\n转换完成 ✓")
             QMessageBox.information(self, "完成", "转换已完成！")
+
         except Exception as e:
+            progress.close()
             self._log(f"\n错误：{str(e)}")
             QMessageBox.critical(self, "失败", str(e))

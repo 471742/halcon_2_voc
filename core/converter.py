@@ -2,14 +2,15 @@
 import os
 from pathlib import Path
 import xml.etree.ElementTree as ET
-
+from PyQt5.QtWidgets import (QApplication
+)
 try:
     import halcon as ha
 except ImportError:
     ha = None
 
 
-def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print):
+def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print, progress=None):
     if ha is None:
         raise RuntimeError("未找到 Halcon Python 绑定，无法读取 hdict")
 
@@ -21,18 +22,29 @@ def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print):
     if not samples:
         raise ValueError("未找到 'samples' 字段 或 samples 为空")
 
-    # ──────────────── 新增：读取类别名称 ────────────────
+    # 获取类别名称
     class_names = []
     try:
         class_names = ha.get_dict_tuple(d, 'class_names')
         log_func(f"读取到 {len(class_names)} 个类别名称")
-    except Exception as e:
-        log_func(f"未读取到 'class_names'，将使用默认类别名: {str(e)}")
-        class_names = []  # 后面会 fallback 到 class_{id}
+    except:
+        log_func("未读取到 'class_names'，使用默认类别名")
+        class_names = []
 
-    log_func(f"共 {len(samples)} 个样本")
+    total = len(samples)
+    log_func(f"共 {total} 个样本")
+
+    # 初始化进度条
+    if progress:
+        progress.setRange(0, total)
+        progress.setValue(0)
+        progress.setLabelText("正在处理样本...")
 
     for i, sample in enumerate(samples):
+        # 检查用户是否点击了取消
+        if progress and progress.wasCanceled():
+            log_func("用户取消了转换")
+            raise Exception("用户取消操作")
         try:
             filename_list = ha.get_dict_tuple(sample, 'image_file_name')
             filename = filename_list[0] if filename_list and len(filename_list) > 0 else f"img_{i:06d}.jpg"
@@ -116,22 +128,17 @@ def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print):
             log_func(f"生成: {os.path.basename(xml_path)} （{'有' if num_boxes > 0 else '无'}标注，{num_boxes} 个框）")
 
         except Exception as e:
-            log_func(f"样本 {i} 处理失败（{filename if 'filename' in locals() else '未知'}）：{str(e)}")
-            # 异常时仍尝试生成最简 XML
-            try:
-                root = ET.Element("annotation")
-                ET.SubElement(root, "folder").text = "VOC2007"
-                ET.SubElement(root, "filename").text = filename if 'filename' in locals() else f"unknown_{i}.jpg"
-                size_el = ET.SubElement(root, "size")
-                ET.SubElement(size_el, "width").text = "0"
-                ET.SubElement(size_el, "height").text = "0"
-                ET.SubElement(size_el, "depth").text = "3"
-                xml_path = os.path.join(output_dir, Path(filename).stem + ".xml" if 'filename' in locals() else f"unknown_{i}.xml")
-                ET.ElementTree(root).write(xml_path, encoding="utf-8", xml_declaration=True)
-                log_func(f"  → 异常后仍生成最小 XML: {os.path.basename(xml_path)}")
-            except:
-                pass
-            continue
+            log_func(f"样本 {i} 处理失败: {str(e)}")
+        
+        # 更新进度
+        if progress:
+            progress.setValue(i + 1)
+            progress.setLabelText(f"正在处理样本 {i+1}/{total} ({filename})")
+            QApplication.processEvents()   # 重要：让 UI 响应
+
+    if progress:
+        progress.setValue(total)
+        progress.setLabelText("转换完成")
 
     log_func("hdict 转 VOC XML 完成")
 
