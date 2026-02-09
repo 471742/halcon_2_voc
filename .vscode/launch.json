@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: 当前文件（带 HALCON PATH）",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PATH": "${env:PATH};D:\\MVTEC Software\\HALCON-25.11-Progress\\bin\\x64-win64"
+            }
+        }
+    ]
+}
