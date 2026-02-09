@@ -1,1 +1,1 @@
-这个一个将halcon的hdict数据集转换成VOC格式的可视化界面脚本
+这个一个将halcon的hdict数据集转换成VOC格式的可视化界面脚本.
