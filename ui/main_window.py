@@ -5,7 +5,10 @@ from PyQt5.QtWidgets import (
     QTextEdit, QMessageBox,QApplication,QProgressDialog
 )
 from PyQt5.QtCore import Qt
-
+import os
+import datetime
+from PyQt5.QtCore import QUrl
+from PyQt5.QtGui import QDesktopServices
 from core.converter import hdict_to_voc_xml, voc_xml_to_hdict
 
 
@@ -19,6 +22,7 @@ class HdictVocConverterWindow(QMainWindow):
         self.output_path = ""
 
         self._init_ui()
+
 
     def _init_ui(self):
         central = QWidget()
@@ -72,6 +76,18 @@ class HdictVocConverterWindow(QMainWindow):
         self.log_text.setStyleSheet("background: #f8f9fa; font-family: Consolas;")
         layout.addWidget(self.log_text)
 
+        # self.log_dir = os.path.join(os.path.expanduser("~"), "Desktop", "转换日志")  # 可自定义路径
+        self.log_dir = "./logs"  # 日志文件存放目录
+        os.makedirs(self.log_dir, exist_ok=True)
+
+        self.current_log_path = None
+
+        # 新增按钮
+        self.btn_open_log = QPushButton("打开日志文件夹")
+        self.btn_open_log.setEnabled(False)
+        self.btn_open_log.clicked.connect(self.open_log_folder)
+        layout.addWidget(self.btn_open_log)  # 建议放在日志文本框下方
+
         self._on_mode_changed()
 
     def _on_mode_changed(self):
@@ -101,6 +117,16 @@ class HdictVocConverterWindow(QMainWindow):
         self.log_text.ensureCursorVisible()
         QApplication.processEvents()
 
+        if hasattr(self, 'log_file') and not self.log_file.closed:
+            timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+            self.log_file.write(f"[{timestamp}] {msg.strip()}\n")
+            self.log_file.flush()  # 实时写入
+
+    def open_log_folder(self):
+        if self.current_log_path and os.path.exists(self.log_dir):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self.log_dir))
+        else:
+            QMessageBox.information(self, "提示", "暂无日志文件夹或路径无效")
     def _run_conversion(self):
         if not self.input_path:
             QMessageBox.warning(self, "提示", "请选择输入")
@@ -112,35 +138,58 @@ class HdictVocConverterWindow(QMainWindow):
         self.log_text.clear()
         self._log("开始处理...\n")
 
+       # 生成日志文件名（按时间）
+        now = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        mode_text = "hdict_to_voc" if self.cb_mode.currentIndex() == 0 else "voc_to_hdict"
+        log_filename = f"{now}_{mode_text}.log"
+        self.current_log_path = os.path.join(self.log_dir, log_filename)
+
+        # 清空界面日志
+        self.log_text.clear()
+        self._log(f"日志将保存至：{self.current_log_path}\n")
+        self._log("开始处理...\n")
+
+        # 创建文件日志处理器（简单方式：用 open 写入）
+        self.log_file = open(self.current_log_path, "w", encoding="utf-8")
+        self.log_file.write(f"转换开始时间: {datetime.datetime.now()}\n")
+        self.log_file.write(f"模式: {mode_text}\n")
+        self.log_file.write(f"输入: {self.input_path}\n")
+        self.log_file.write(f"输出: {self.output_path}\n")
+        self.log_file.write("-" * 60 + "\n")
+
+        # 启用打开日志按钮
+        self.btn_open_log.setEnabled(True)
+
         try:
-            # 创建进度对话框
-            progress = QProgressDialog("正在转换 hdict 到 VOC XML...", "取消", 0, 100, self)
+            progress = QProgressDialog("正在转换...", "取消", 0, 100, self)
             progress.setWindowModality(Qt.WindowModal)
-            progress.setMinimumDuration(0)           # 立即显示
-            progress.setAutoClose(False)
-            progress.setAutoReset(False)
+            progress.setMinimumDuration(0)
 
             if self.cb_mode.currentIndex() == 0:
-                # hdict → VOC
                 hdict_to_voc_xml(
                     hdict_path=self.input_path,
                     output_dir=self.output_path,
-                    log_func=self._log,
-                    progress=progress   # 新增：传入进度对话框
+                    log_func=self._log,           # 同时写界面 + 文件
+                    progress=progress,
+                    log_file=self.log_file        # 新增：传入文件句柄
                 )
             else:
-                # VOC → hdict （如果也想加进度条，可类似实现）
                 voc_xml_to_hdict(
                     xml_dir=self.input_path,
                     output_dir=self.output_path,
-                    log_func=self._log
+                    log_func=self._log,
+                    log_file=self.log_file
                 )
 
             progress.close()
             self._log("\n转换完成 ✓")
-            QMessageBox.information(self, "完成", "转换已完成！")
+            self.log_file.write("\n转换完成\n")
+            QMessageBox.information(self, "完成", f"转换完成\n日志已保存至：\n{self.current_log_path}")
 
         except Exception as e:
-            progress.close()
             self._log(f"\n错误：{str(e)}")
+            self.log_file.write(f"\n错误：{str(e)}\n")
             QMessageBox.critical(self, "失败", str(e))
+        finally:
+            if hasattr(self, 'log_file') and not self.log_file.closed:
+                self.log_file.close()
