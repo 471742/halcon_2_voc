@@ -1,6 +1,6 @@
 # core/converter.py
 import os
-import datetime
+from PIL import Image
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from PyQt5.QtWidgets import (QApplication
@@ -11,7 +11,7 @@ except ImportError:
     ha = None
 
 
-def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print, progress=None, log_file=None):
+def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print, progress=None, log_file=None,custom_image_dir=""):
     if ha is None:
         raise RuntimeError("未找到 Halcon Python 绑定，无法读取 hdict")
 
@@ -22,6 +22,21 @@ def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print, progress=
     samples = ha.get_dict_tuple(d, "samples")
     if not samples:
         raise ValueError("未找到 'samples' 字段 或 samples 为空")
+    
+    image_dir = custom_image_dir.strip()
+    if image_dir and os.path.isdir(image_dir):
+        log_func(f"使用用户指定的图片文件夹：{image_dir}")
+    else:
+        try:
+            image_dir_list = ha.get_dict_tuple(d, 'image_dir')
+            image_dir = image_dir_list[0] if image_dir_list else ""
+            log_func(f"使用 hdict 中的 image_dir：{image_dir}")
+        except:
+            image_dir = ""
+            log_func("未读取到 image_dir，将尝试使用相对路径或跳过图像尺寸读取")
+
+    if image_dir and not os.path.isabs(image_dir):
+        log_func("警告：image_dir 是相对路径，可能导致拼接失败")
 
     # 获取类别名称
     class_names = []
@@ -31,7 +46,7 @@ def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print, progress=
     except:
         log_func("未读取到 'class_names'，使用默认类别名")
         class_names = []
-
+    
     total = len(samples)
     log_func(f"共 {total} 个样本")
 
@@ -49,6 +64,13 @@ def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print, progress=
         try:
             filename_list = ha.get_dict_tuple(sample, 'image_file_name')
             filename = filename_list[0] if filename_list and len(filename_list) > 0 else f"img_{i:06d}.jpg"
+            
+            # 拼接完整路径
+            full_image_path = ""
+            if image_dir:
+                full_image_path = os.path.join(image_dir, filename)
+            else:
+                full_image_path = filename  # 如果都没有，就直接用 filename（可能已经是绝对路径）
 
             # 边界框坐标（四个键分开存储）
             row1_list = col1_list = row2_list = col2_list = label_id_list = []
@@ -72,18 +94,18 @@ def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print, progress=
                     log_func(f"样本 {i} bbox 坐标长度不一致，只处理有效部分")
                     num_boxes = min(len(row1_list), len(col1_list), len(row2_list), len(col2_list))
 
-            # 图像尺寸
-            width = height = 0
-            try:
-                w_list = ha.get_dict_tuple(sample, 'image_width')
-                width = int(w_list[0]) if w_list and len(w_list) > 0 else 0
-            except:
-                pass
-            try:
-                h_list = ha.get_dict_tuple(sample, 'image_height')
-                height = int(h_list[0]) if h_list and len(h_list) > 0 else 0
-            except:
-                pass
+            # 获取图像宽高
+            width = 0
+            height = 0
+            if os.path.exists(full_image_path) and os.path.isfile(full_image_path):
+                try:
+                    with Image.open(full_image_path) as img:
+                        width, height = img.size
+                    log_func(f"从图像文件读取尺寸: {filename} → {width}x{height}")
+                except Exception as e:
+                    log_func(f"读取图像失败 {filename}: {str(e)}，使用默认尺寸 0x0")
+            else:
+                log_func(f"图像文件不存在: {full_image_path}，使用默认尺寸 0x0")
 
             # 开始构建 XML
             root = ET.Element("annotation")
@@ -147,77 +169,150 @@ def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print, progress=
     # ha.clear_all_dicts()
 
 
-def voc_xml_to_hdict(xml_dir: str, output_dir: str, log_func=print):
-    """ VOC XML 文件夹 → Halcon .hdict """
+def voc_xml_to_hdict(
+    xml_dir: str,
+    output_dir: str,
+    log_func=print,
+    progress=None,
+    log_file=None,
+    custom_image_dir=""
+):
     if ha is None:
         raise RuntimeError("未找到 Halcon Python 绑定，无法生成 hdict")
 
-    xml_files = [f for f in os.listdir(xml_dir) if f.lower().endswith(".xml")]
+    xml_files = sorted([f for f in os.listdir(xml_dir) if f.lower().endswith('.xml')])
     if not xml_files:
-        raise ValueError("文件夹中没有 .xml 文件")
+        raise ValueError("选择的文件夹中没有 .xml 文件")
 
-    log_func(f"找到 {len(xml_files)} 个 XML 文件")
+    total = len(xml_files)
+    log_func(f"找到 {total} 个 XML 文件")
 
+    if progress:
+        progress.setRange(0, total)
+        progress.setValue(0)
+        progress.setLabelText("正在处理 XML...")
+
+    # 确定 image_dir
+    image_dir = custom_image_dir.strip()
+    if image_dir and os.path.isdir(image_dir):
+        log_func(f"使用用户指定的图片文件夹: {image_dir}")
+    else:
+        image_dir = xml_dir  # 默认使用 XML 目录作为 image_dir
+        log_func(f"使用默认图片文件夹: {image_dir}")
+
+    # 创建根字典
     dataset = ha.create_dict()
-    samples = []
-    class_set = set()
 
-    for xml_file in sorted(xml_files):
+   # 使用列表保持首次出现顺序 + 映射表保证一致性
+    class_names_ordered = []           # 按首次出现顺序保存名称
+    class_name_to_id = {}              # name → id 的映射
+
+    samples = []
+
+    for idx, xml_file in enumerate(xml_files):
+        if progress and progress.wasCanceled():
+            log_func("用户取消了转换")
+            raise Exception("用户取消操作")
+
         try:
             tree = ET.parse(os.path.join(xml_dir, xml_file))
             root = tree.getroot()
 
-            filename = root.findtext("filename", "").strip()
-            if not filename:
-                continue
+            # 修改点：直接从 XML 文件名获取图像文件名，默认 .jpg
+            xml_stem = os.path.splitext(xml_file)[0]  # 去掉 .xml 后缀
+            filename = f"{xml_stem}.jpg"
+
+            # 可选：记录原始 XML 里的 filename（用于调试对比）
+            original_filename_in_xml = root.findtext("filename", "").strip()
+            if original_filename_in_xml and original_filename_in_xml != filename:
+                log_func(f"警告：{xml_file} 内 filename 为 {original_filename_in_xml}，但使用 XML 文件名 {filename}")
 
             size = root.find("size")
-            w = int(size.findtext("width", "0"))
-            h = int(size.findtext("height", "0"))
+            width = int(size.findtext("width", "0")) if size else 0
+            height = int(size.findtext("height", "0")) if size else 0
 
-            bboxes = []
-            cls_names = []
+            row1_list = []
+            col1_list = []
+            row2_list = []
+            col2_list = []
+            label_id_list = []
 
             for obj in root.findall("object"):
                 name = obj.findtext("name", "").strip()
                 if not name:
                     continue
-                class_set.add(name)
 
+                # 如果是新类别，添加到有序列表，并分配 ID
+                if name not in class_name_to_id:
+                    new_id = len(class_names_ordered)
+                    class_names_ordered.append(name)
+                    class_name_to_id[name] = new_id
+
+                # 获取 bbox
                 bb = obj.find("bndbox")
-                if not bb:
+                if bb is None:
                     continue
 
                 try:
-                    xmin = float(bb.findtext("xmin"))
-                    ymin = float(bb.findtext("ymin"))
-                    xmax = float(bb.findtext("xmax"))
-                    ymax = float(bb.findtext("ymax"))
-                    bboxes.append([ymin, xmin, ymax, xmax])  # row1,col1,row2,col2
-                    cls_names.append(name)
+                    xmin = float(bb.findtext("xmin", 0))
+                    ymin = float(bb.findtext("ymin", 0))
+                    xmax = float(bb.findtext("xmax", 0))
+                    ymax = float(bb.findtext("ymax", 0))
                 except:
-                    pass
+                    continue
 
-            if not bboxes:
-                continue
+                row1_list.append(ymin)
+                col1_list.append(xmin)
+                row2_list.append(ymax)
+                col2_list.append(xmax)
+                label_id_list.append(class_name_to_id[name])
 
+            # 创建 sample 字典
             sample = ha.create_dict()
-            ha.set_dict_tuple(sample, "image_file_name", filename)
-            ha.set_dict_tuple(sample, "image_width", [w])
-            ha.set_dict_tuple(sample, "image_height", [h])
-            ha.set_dict_tuple(sample, "bbox", bboxes)
-            ha.set_dict_tuple(sample, "class_id", cls_names)  # 暂用字符串
+            ha.set_dict_tuple(sample, 'image_file_name', [filename])
+            ha.set_dict_tuple(sample, 'image_width', [width])
+            ha.set_dict_tuple(sample, 'image_height', [height])
+
+            if row1_list:
+                ha.set_dict_tuple(sample, 'bbox_row1', row1_list)
+                ha.set_dict_tuple(sample, 'bbox_col1', col1_list)
+                ha.set_dict_tuple(sample, 'bbox_row2', row2_list)
+                ha.set_dict_tuple(sample, 'bbox_col2', col2_list)
+                ha.set_dict_tuple(sample, 'bbox_label_id', label_id_list)
 
             samples.append(sample)
-            log_func(f"解析: {xml_file}")
+
+            log_func(f"解析 {xml_file}: {filename} ({len(row1_list)} 个框)")
 
         except Exception as e:
-            log_func(f"{xml_file} 解析失败: {e}")
+            log_func(f"解析失败 {xml_file}: {str(e)}")
+            continue
 
-    ha.set_dict_tuple(dataset, "samples", samples)
-    ha.set_dict_tuple(dataset, "class_names", list(sorted(class_set)))
+        if progress:
+            progress.setValue(idx + 1)
+            progress.setLabelText(f"正在处理 XML {idx+1}/{total}")
+            QApplication.processEvents()
 
-    out_path = os.path.join(output_dir, "dataset.hdict")
-    ha.write_dict(dataset, out_path, "dict", [])
-    # ha.clear_all_dicts()          # 清理所有字典（全局，慎用）
-    log_func(f"生成 hdict: {out_path}")
+    # 设置根字典
+    ha.set_dict_tuple(dataset, 'samples', samples)
+    ha.set_dict_tuple(dataset, 'image_dir', [image_dir])
+
+    # 关键：使用首次出现顺序的 class_names
+    ha.set_dict_tuple(dataset, 'class_names', class_names_ordered)
+    
+    # class_ids 可以是 0 到 n-1
+    ha.set_dict_tuple(dataset, 'class_ids', list(range(len(class_names_ordered))))
+
+    # 保存
+    out_file = os.path.join(output_dir, "dataset.hdict")
+    ha.write_dict(dataset, out_file, [], [])
+    log_func(f"生成 hdict: {out_file}")
+    
+    # 调试输出：验证对应关系
+    log_func("生成的 class_names（按首次出现顺序）：")
+    for i, name in enumerate(class_names_ordered):
+        log_func(f"  ID {i}: {name}")
+
+    if progress:
+        progress.setValue(total)
+        progress.setLabelText("转换完成")

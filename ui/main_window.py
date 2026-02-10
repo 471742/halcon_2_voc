@@ -87,8 +87,36 @@ class HdictVocConverterWindow(QMainWindow):
         self.btn_open_log.setEnabled(False)
         self.btn_open_log.clicked.connect(self.open_log_folder)
         layout.addWidget(self.btn_open_log)  # 建议放在日志文本框下方
+        
+        self.custom_image_dir = ""  # 新增：用户手动指定的图像根目录
+
+        # 新增：图片文件夹选择区域（建议放在“选择输出目录”下面）
+        row_img = QHBoxLayout()
+        row_img.addWidget(QLabel("图片文件夹（可选）："))
+        
+        self.btn_select_img_dir = QPushButton("选择文件夹")
+        self.btn_select_img_dir.clicked.connect(self._select_image_dir)
+        row_img.addWidget(self.btn_select_img_dir)
+
+        self.lbl_img_dir = QLabel("使用 hdict 中的 image_dir")
+        self.lbl_img_dir.setStyleSheet("color: #666;")
+        row_img.addWidget(self.lbl_img_dir)
+        row_img.addStretch()
+        layout.addLayout(row_img)
 
         self._on_mode_changed()
+    
+    def _select_image_dir(self):
+        path = QFileDialog.getExistingDirectory(self, "选择图片文件夹", "")
+        if path:
+            self.custom_image_dir = path
+            self.lbl_img_dir.setText(path if len(path) < 60 else "..." + path[-57:])
+            self.lbl_img_dir.setStyleSheet("color: #000;")
+            self._log(f"已指定自定义图片文件夹：{path}\n")
+        else:
+            self.custom_image_dir = ""
+            self.lbl_img_dir.setText("使用 hdict 中的 image_dir")
+            self.lbl_img_dir.setStyleSheet("color: #666;")
 
     def _on_mode_changed(self):
         is_h2v = self.cb_mode.currentIndex() == 0
@@ -169,18 +197,20 @@ class HdictVocConverterWindow(QMainWindow):
                 hdict_to_voc_xml(
                     hdict_path=self.input_path,
                     output_dir=self.output_path,
-                    log_func=self._log,           # 同时写界面 + 文件
+                    log_func=self._log,
                     progress=progress,
-                    log_file=self.log_file        # 新增：传入文件句柄
+                    log_file=self.log_file,
+                    custom_image_dir=self.custom_image_dir   # 新增参数
                 )
             else:
                 voc_xml_to_hdict(
                     xml_dir=self.input_path,
                     output_dir=self.output_path,
                     log_func=self._log,
-                    log_file=self.log_file
+                    progress=progress,               # 新增进度条
+                    log_file=self.log_file,          # 新增日志文件
+                    custom_image_dir=self.custom_image_dir  # 新增自定义图片目录
                 )
-
             progress.close()
             self._log("\n转换完成 ✓")
             self.log_file.write("\n转换完成\n")
