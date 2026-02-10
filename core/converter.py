@@ -14,14 +14,8 @@ except ImportError:
 def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print, progress=None, log_file=None):
     if ha is None:
         raise RuntimeError("未找到 Halcon Python 绑定，无法读取 hdict")
-    def safe_log(msg):
-        log_func(msg)
-        if log_file and not log_file.closed:
-            timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-            log_file.write(f"[{timestamp}] {msg.strip()}\n")
-            log_file.flush()
 
-    safe_log(f"读取 hdict: {hdict_path}")
+    log_func(f"读取 hdict: {hdict_path}")
     
     d = ha.read_dict(hdict_path, [], [])
     
@@ -33,13 +27,13 @@ def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print, progress=
     class_names = []
     try:
         class_names = ha.get_dict_tuple(d, 'class_names')
-        safe_log(f"读取到 {len(class_names)} 个类别名称")
+        log_func(f"读取到 {len(class_names)} 个类别名称")
     except:
-        safe_log("未读取到 'class_names'，使用默认类别名")
+        log_func("未读取到 'class_names'，使用默认类别名")
         class_names = []
 
     total = len(samples)
-    safe_log(f"共 {total} 个样本")
+    log_func(f"共 {total} 个样本")
 
     # 初始化进度条
     if progress:
@@ -50,7 +44,7 @@ def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print, progress=
     for i, sample in enumerate(samples):
         # 检查用户是否点击了取消
         if progress and progress.wasCanceled():
-            safe_log("用户取消了转换")
+            log_func("用户取消了转换")
             raise Exception("用户取消操作")
         try:
             filename_list = ha.get_dict_tuple(sample, 'image_file_name')
@@ -68,14 +62,14 @@ def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print, progress=
                 label_id_list = ha.get_dict_tuple(sample, 'bbox_label_id')
                 has_bbox = True
             except:
-                safe_log(f"样本 {i} 缺少 bbox 信息（{filename}），将生成空标注 XML")
+                log_func(f"样本 {i} 缺少 bbox 信息（{filename}），将生成空标注 XML")
 
             # bbox 长度处理
             num_boxes = 0
             if has_bbox and len(row1_list) > 0:
                 num_boxes = len(row1_list)
                 if not (len(col1_list) == num_boxes and len(row2_list) == num_boxes and len(col2_list) == num_boxes):
-                    safe_log(f"样本 {i} bbox 坐标长度不一致，只处理有效部分")
+                    log_func(f"样本 {i} bbox 坐标长度不一致，只处理有效部分")
                     num_boxes = min(len(row1_list), len(col1_list), len(row2_list), len(col2_list))
 
             # 图像尺寸
@@ -132,10 +126,10 @@ def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print, progress=
             # 保存（无论是否有 object 都保存）
             xml_path = os.path.join(output_dir, Path(filename).stem + ".xml")
             ET.ElementTree(root).write(xml_path, encoding="utf-8", xml_declaration=True)
-            safe_log(f"生成: {os.path.basename(xml_path)} （{'有' if num_boxes > 0 else '无'}标注，{num_boxes} 个框）")
+            log_func(f"生成: {os.path.basename(xml_path)} （{'有' if num_boxes > 0 else '无'}标注，{num_boxes} 个框）")
 
         except Exception as e:
-            safe_log(f"样本 {i} 处理失败: {str(e)}")
+            log_func(f"样本 {i} 处理失败: {str(e)}")
         
         # 更新进度
         if progress:
@@ -147,13 +141,13 @@ def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print, progress=
         progress.setValue(total)
         progress.setLabelText("转换完成")
 
-    safe_log("hdict 转 VOC XML 完成")
+    log_func("hdict 转 VOC XML 完成")
 
     # ha.clear_dict(d)
     # ha.clear_all_dicts()
 
 
-def voc_xml_to_hdict(xml_dir: str, output_dir: str, safe_log=print):
+def voc_xml_to_hdict(xml_dir: str, output_dir: str, log_func=print):
     """ VOC XML 文件夹 → Halcon .hdict """
     if ha is None:
         raise RuntimeError("未找到 Halcon Python 绑定，无法生成 hdict")
@@ -162,7 +156,7 @@ def voc_xml_to_hdict(xml_dir: str, output_dir: str, safe_log=print):
     if not xml_files:
         raise ValueError("文件夹中没有 .xml 文件")
 
-    safe_log(f"找到 {len(xml_files)} 个 XML 文件")
+    log_func(f"找到 {len(xml_files)} 个 XML 文件")
 
     dataset = ha.create_dict()
     samples = []
@@ -215,10 +209,10 @@ def voc_xml_to_hdict(xml_dir: str, output_dir: str, safe_log=print):
             ha.set_dict_tuple(sample, "class_id", cls_names)  # 暂用字符串
 
             samples.append(sample)
-            safe_log(f"解析: {xml_file}")
+            log_func(f"解析: {xml_file}")
 
         except Exception as e:
-            safe_log(f"{xml_file} 解析失败: {e}")
+            log_func(f"{xml_file} 解析失败: {e}")
 
     ha.set_dict_tuple(dataset, "samples", samples)
     ha.set_dict_tuple(dataset, "class_names", list(sorted(class_set)))
@@ -226,4 +220,4 @@ def voc_xml_to_hdict(xml_dir: str, output_dir: str, safe_log=print):
     out_path = os.path.join(output_dir, "dataset.hdict")
     ha.write_dict(dataset, out_path, "dict", [])
     # ha.clear_all_dicts()          # 清理所有字典（全局，慎用）
-    safe_log(f"生成 hdict: {out_path}")
+    log_func(f"生成 hdict: {out_path}")
