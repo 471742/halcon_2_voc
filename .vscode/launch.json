@@ -9,7 +9,7 @@
             "console": "integratedTerminal",
             "justMyCode": true,
             "env": {
-                "PATH": "${env:PATH};D:\\MVTEC Software\\HALCON-25.11-Progress\\bin\\x64-win64"
+                "PATH": "${env:PATH};D:\\MVTEC Softwar\\HALCON-20.11-Steady\\bin\\x64-win64"
             }
         }
     ]

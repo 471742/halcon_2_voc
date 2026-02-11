@@ -1,3 +1,5 @@
 test/fj_td_test.hdict
 test/
 logs/
+build/
+dist/

@@ -153,6 +153,23 @@ class HdictVocConverterWindow(QMainWindow):
         log_layout.addWidget(self.log_text)
 
         layout.addWidget(log_group, 1)
+        
+        footer_layout = QHBoxLayout()
+        footer_layout.setContentsMargins(0, 10, 0, 0)
+        
+        # 版本号 + 作者信息
+        version_label = QLabel("版本: v1.0.0    |    作者: 宫    |    2026年2月10日")
+        version_label.setStyleSheet("""
+            color: #777777;
+            font-size: 12px;
+            font-family: Microsoft YaHei;
+        """)
+        version_label.setAlignment(Qt.AlignCenter)
+        
+        footer_layout.addWidget(version_label)
+        footer_layout.addStretch()  # 让信息居中或靠左，根据需要调整
+        
+        layout.addLayout(footer_layout)
 
         self._on_mode_changed()
 

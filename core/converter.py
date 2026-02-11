@@ -1,6 +1,7 @@
 # core/converter.py
 import os
 from PIL import Image
+from xml.dom import minidom
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from PyQt5.QtWidgets import (QApplication
@@ -147,12 +148,26 @@ def hdict_to_voc_xml(hdict_path: str, output_dir: str, log_func=print, progress=
 
             # 保存（无论是否有 object 都保存）
             xml_path = os.path.join(output_dir, Path(filename).stem + ".xml")
-            ET.ElementTree(root).write(xml_path, encoding="utf-8", xml_declaration=True)
+            # ET.ElementTree(root).write(xml_path, encoding="utf-8", xml_declaration=True)
+            tree = ET.ElementTree(root)
+
+            # 美化保存
+            xml_str = ET.tostring(root, encoding='utf-8')
+            reparsed = minidom.parseString(xml_str)
+            pretty_xml = reparsed.toprettyxml(indent="  ")
+
+            # 去除多余空行
+            pretty_xml = '\n'.join([line for line in pretty_xml.split('\n') if line.strip()])
+
+            with open(xml_path, 'w', encoding='utf-8') as f:
+                f.write(pretty_xml)
+
+            log_func(f"已生成美化 XML: {xml_path}")
             log_func(f"生成: {os.path.basename(xml_path)} （{'有' if num_boxes > 0 else '无'}标注，{num_boxes} 个框）")
 
         except Exception as e:
             log_func(f"样本 {i} 处理失败: {str(e)}")
-        
+
         # 更新进度
         if progress:
             progress.setValue(i + 1)
