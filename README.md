@@ -1,0 +1,1 @@
+这是一个将mvtec deeplearning tool 标注的hdict文件和VOC格式的xml互相转换的可视化工具
